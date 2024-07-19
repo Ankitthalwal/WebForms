@@ -1,11 +1,10 @@
-﻿using System;
+using System;
 using System.Data;
-using System.IO;
 using System.Windows.Forms;
-using OfficeOpenXml;
-using System.Data.OleDb;
+using Excel = Microsoft.Office.Interop.Excel;
+using MySql.Data.MySqlClient;
 
-namespace Win12
+namespace ExcelToSqlApp
 {
     public partial class Form1 : Form
     {
@@ -16,76 +15,84 @@ namespace Win12
 
         private void button1_Click(object sender, EventArgs e)
         {
-            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            OpenFileDialog openFileDialog = new OpenFileDialog
             {
-                openFileDialog.Filter = "Excel Files|*.xls;*.xlsx";
-                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                Filter = "Excel Files|*.xls;*.xlsx;*.xlsm",
+                Title = "Select an Excel File"
+            };
+
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                string excelFilePath = openFileDialog.FileName;
+                DataTable dataTable = GetDataTableFromExcel(excelFilePath);
+
+                if (dataTable != null)
                 {
-                    string filePath = openFileDialog.FileName;
-                    DataTable dt = ReadExcel(filePath);
-                    dataGridView1.DataSource = dt;
+                    InsertDataIntoMySqlDatabase(dataTable);
                 }
             }
         }
 
-        private DataTable ReadExcel(string filePath)
+        private DataTable GetDataTableFromExcel(string path)
         {
-            string extension = Path.GetExtension(filePath);
-            if (extension.Equals(".xls", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                return ReadExcelOleDb(filePath);
-            }
-            else if (extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
-            {
-                return ReadExcelEPPlus(filePath);
-            }
-            else
-            {
-                throw new NotSupportedException("The file format is not supported.");
-            }
-        }
+                Excel.Application xlApp = new Excel.Application();
+                Excel.Workbook xlWorkbook = xlApp.Workbooks.Open(path);
+                Excel._Worksheet xlWorksheet = xlWorkbook.Sheets[1];
+                Excel.Range xlRange = xlWorksheet.UsedRange;
 
-        private DataTable ReadExcelEPPlus(string filePath)
-        {
-            DataTable dt = new DataTable();
+                DataTable dt = new DataTable();
 
-            using (ExcelPackage package = new ExcelPackage(new FileInfo(filePath)))
-            {
-                ExcelWorksheet worksheet = package.Workbook.Worksheets[0]; // Get the first worksheet
-                foreach (var firstRowCell in worksheet.Cells[1, 1, 1, worksheet.Dimension.End.Column])
+                // Assuming the first row contains the column names
+                for (int i = 1; i <= xlRange.Columns.Count; i++)
                 {
-                    dt.Columns.Add(firstRowCell.Text);
+                    dt.Columns.Add(xlRange.Cells[1, i].Value2.ToString());
                 }
 
-                for (int rowNum = 2; rowNum <= worksheet.Dimension.End.Row; rowNum++)
+                for (int i = 2; i <= xlRange.Rows.Count; i++)
                 {
-                    var wsRow = worksheet.Cells[rowNum, 1, rowNum, worksheet.Dimension.End.Column];
                     DataRow row = dt.NewRow();
-                    foreach (var cell in wsRow)
+                    for (int j = 1; j <= xlRange.Columns.Count; j++)
                     {
-                        row[cell.Start.Column - 1] = cell.Text;
+                        row[j - 1] = xlRange.Cells[i, j].Value2?.ToString();
                     }
                     dt.Rows.Add(row);
                 }
-            }
 
-            return dt;
+                xlWorkbook.Close();
+                xlApp.Quit();
+
+                return dt;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error reading Excel file: " + ex.Message);
+                return null;
+            }
         }
 
-        private DataTable ReadExcelOleDb(string filePath)
+        private void InsertDataIntoMySqlDatabase(DataTable dataTable)
         {
-            DataTable dt = new DataTable();
-            string connString = $"Provider=Microsoft.Jet.OLEDB.4.0;Data Source={filePath};Extended Properties=\"Excel 8.0;HDR=YES;IMEX=1\"";
-
-            using (OleDbConnection conn = new OleDbConnection(connString))
+            string connectionString = "Server=Venom;Database=Mydb;Uid=root;Pwd=1234;Port=3306;";
+            using (MySqlConnection conn = new MySqlConnection(connectionString))
             {
                 conn.Open();
-                OleDbCommand cmd = new OleDbCommand("SELECT * FROM [Sheet1$]", conn);
-                OleDbDataAdapter da = new OleDbDataAdapter(cmd);
-                da.Fill(dt);
+                foreach (DataRow row in dataTable.Rows)
+                {
+                    string query = "INSERT INTO customers (customer_id, name, country) VALUES (@customer_id, @name, @country)";
+                    using (MySqlCommand cmd = new MySqlCommand(query, conn))
+                    {
+                        // Assuming the columns in the Excel file are in the order: customer_id, name, country
+                        cmd.Parameters.AddWithValue("@customer_id", row["customer_id"]);
+                        cmd.Parameters.AddWithValue("@name", row["name"]);
+                        cmd.Parameters.AddWithValue("@country", row["country"]);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
             }
 
-            return dt;
+            MessageBox.Show("Data inserted successfully!");
         }
     }
 }
