@@ -1,13 +1,16 @@
 using System;
 using System.Data;
+using System.Data.SQLite;
 using System.Windows.Forms;
 using Excel = Microsoft.Office.Interop.Excel;
-using MySql.Data.MySqlClient;
 
-namespace ExcelToSqlApp
+namespace insertintodb12
 {
     public partial class Form1 : Form
     {
+        private DataTable dataTable;
+        private string excelFilePath;
+
         public Form1()
         {
             InitializeComponent();
@@ -15,84 +18,128 @@ namespace ExcelToSqlApp
 
         private void button1_Click(object sender, EventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            // Open the Excel file
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
             {
-                Filter = "Excel Files|*.xls;*.xlsx;*.xlsm",
-                Title = "Select an Excel File"
-            };
-
-            if (openFileDialog.ShowDialog() == DialogResult.OK)
-            {
-                string excelFilePath = openFileDialog.FileName;
-                DataTable dataTable = GetDataTableFromExcel(excelFilePath);
-
-                if (dataTable != null)
+                openFileDialog.Filter = "Excel Files|*.xls;*.xlsx;*.xlsm";
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
-                    InsertDataIntoMySqlDatabase(dataTable);
+                    excelFilePath = openFileDialog.FileName;
+                    ReadAndInsertExcelData(excelFilePath);
+                }
+                else
+                {
+                    MessageBox.Show("Please select an Excel file.");
+                    return;
                 }
             }
+
+            // Display data from SQLite database
+            DisplayDataFromSQLite();
         }
 
-        private DataTable GetDataTableFromExcel(string path)
+        private void ReadAndInsertExcelData(string filePath)
         {
+            Excel.Application excelApp = null;
+            Excel.Workbook workbook = null;
+            Excel.Worksheet worksheet = null;
+            Excel.Range range = null;
+
             try
             {
-                Excel.Application xlApp = new Excel.Application();
-                Excel.Workbook xlWorkbook = xlApp.Workbooks.Open(path);
-                Excel._Worksheet xlWorksheet = xlWorkbook.Sheets[1];
-                Excel.Range xlRange = xlWorksheet.UsedRange;
+                excelApp = new Excel.Application();
+                workbook = excelApp.Workbooks.Open(filePath);
+                worksheet = workbook.Sheets[1];
+                range = worksheet.UsedRange;
 
-                DataTable dt = new DataTable();
-
-                // Assuming the first row contains the column names
-                for (int i = 1; i <= xlRange.Columns.Count; i++)
+                using (SQLiteConnection conn = new SQLiteConnection("Data Source=E:\\database\\sms.db;Version=3;"))
                 {
-                    dt.Columns.Add(xlRange.Cells[1, i].Value2.ToString());
-                }
+                    conn.Open();
 
-                for (int i = 2; i <= xlRange.Rows.Count; i++)
-                {
-                    DataRow row = dt.NewRow();
-                    for (int j = 1; j <= xlRange.Columns.Count; j++)
+                    // Create table based on Excel columns
+                    string createTableQuery = "CREATE TABLE IF NOT EXISTS students (";
+                    for (int col = 1; col <= range.Columns.Count; col++)
                     {
-                        row[j - 1] = xlRange.Cells[i, j].Value2?.ToString();
+                        string columnName = (range.Cells[1, col] as Excel.Range).Value2.ToString();
+                        createTableQuery += $"{columnName} TEXT";
+                        if (col < range.Columns.Count)
+                        {
+                            createTableQuery += ", ";
+                        }
                     }
-                    dt.Rows.Add(row);
+                    createTableQuery += ")";
+
+                    using (SQLiteCommand createTableCmd = new SQLiteCommand(createTableQuery, conn))
+                    {
+                        createTableCmd.ExecuteNonQuery();
+                    }
+
+                    using (SQLiteTransaction transaction = conn.BeginTransaction())
+                    {
+                        for (int row = 2; row <= range.Rows.Count; row++)
+                        {
+                            string insertQuery = "INSERT INTO students VALUES (";
+                            for (int col = 1; col <= range.Columns.Count; col++)
+                            {
+                                insertQuery += $"@param{col}";
+                                if (col < range.Columns.Count)
+                                {
+                                    insertQuery += ", ";
+                                }
+                            }
+                            insertQuery += ")";
+
+                            using (SQLiteCommand insertCmd = new SQLiteCommand(insertQuery, conn))
+                            {
+                                for (int col = 1; col <= range.Columns.Count; col++)
+                                {
+                                    insertCmd.Parameters.AddWithValue($"@param{col}", (range.Cells[row, col] as Excel.Range).Value2.ToString());
+                                }
+                                insertCmd.ExecuteNonQuery();
+                            }
+                        }
+                        transaction.Commit();
+                    }
+
+                    MessageBox.Show("Data imported successfully!");
                 }
-
-                xlWorkbook.Close();
-                xlApp.Quit();
-
-                return dt;
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error reading Excel file: " + ex.Message);
-                return null;
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                // Clean up
+                if (workbook != null)
+                {
+                    workbook.Close(false);
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(workbook);
+                }
+                if (excelApp != null)
+                {
+                    excelApp.Quit();
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(excelApp);
+                }
             }
         }
 
-        private void InsertDataIntoMySqlDatabase(DataTable dataTable)
+        private void DisplayDataFromSQLite()
         {
-            string connectionString = "Server=Venom;Database=Mydb;Uid=root;Pwd=1234;Port=3306;";
-            using (MySqlConnection conn = new MySqlConnection(connectionString))
+            using (SQLiteConnection conn = new SQLiteConnection("Data Source=E:\\database\\sms.db;Version=3;"))
             {
                 conn.Open();
-                foreach (DataRow row in dataTable.Rows)
+
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT * FROM students", conn))
                 {
-                    string query = "INSERT INTO customers (customer_id, name, country) VALUES (@customer_id, @name, @country)";
-                    using (MySqlCommand cmd = new MySqlCommand(query, conn))
+                    using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(cmd))
                     {
-                        // Assuming the columns in the Excel file are in the order: customer_id, name, country
-                        cmd.Parameters.AddWithValue("@customer_id", row["customer_id"]);
-                        cmd.Parameters.AddWithValue("@name", row["name"]);
-                        cmd.Parameters.AddWithValue("@country", row["country"]);
-                        cmd.ExecuteNonQuery();
+                        DataTable dataTable = new DataTable();
+                        adapter.Fill(dataTable);
+                        dataGridView1.DataSource = dataTable;
                     }
                 }
             }
-
-            MessageBox.Show("Data inserted successfully!");
         }
     }
 }
