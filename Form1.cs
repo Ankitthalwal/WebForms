@@ -3,14 +3,13 @@ using System.Data;
 using System.Data.SQLite;
 using System.Windows.Forms;
 using Excel = Microsoft.Office.Interop.Excel;
-
-namespace insertintodb12
+namespace Exceldata
 {
     public partial class Form1 : Form
+
     {
         private DataTable dataTable;
         private string excelFilePath;
-
         public Form1()
         {
             InitializeComponent();
@@ -40,28 +39,34 @@ namespace insertintodb12
 
         private void ReadAndInsertExcelData(string filePath)
         {
-            Excel.Application excelApp = null;
-            Excel.Workbook workbook = null;
-            Excel.Worksheet worksheet = null;
-            Excel.Range range = null;
+            Excel.Application excelApp = new Excel.Application();
+            Excel.Workbook workbook = excelApp.Workbooks.Open(filePath);
+            Excel.Worksheet worksheet = workbook.Sheets[1];
+            Excel.Range range = worksheet.UsedRange;
+            string tableName = worksheet.Name;
 
             try
             {
-                excelApp = new Excel.Application();
-                workbook = excelApp.Workbooks.Open(filePath);
-                worksheet = workbook.Sheets[1];
-                range = worksheet.UsedRange;
-
                 using (SQLiteConnection conn = new SQLiteConnection("Data Source=E:\\database\\sms.db;Version=3;"))
                 {
                     conn.Open();
 
                     // Create table based on Excel columns
-                    string createTableQuery = "CREATE TABLE IF NOT EXISTS students (";
+                    string createTableQuery = $"CREATE TABLE IF NOT EXISTS [{tableName}] (";
                     for (int col = 1; col <= range.Columns.Count; col++)
                     {
-                        string columnName = (range.Cells[1, col] as Excel.Range).Value2.ToString();
-                        createTableQuery += $"{columnName} TEXT";
+                        string columnName = (range.Cells[1, col] as Excel.Range).Value2.ToString().Replace(" ", "_");
+
+                        if (col == 1)
+                        {
+                            // Assuming the first column is the primary key and it is an integer
+                            createTableQuery += $"{columnName} INTEGER PRIMARY KEY";
+                        }
+                        else
+                        {
+                            createTableQuery += $"{columnName} TEXT";
+                        }
+
                         if (col < range.Columns.Count)
                         {
                             createTableQuery += ", ";
@@ -78,7 +83,7 @@ namespace insertintodb12
                     {
                         for (int row = 2; row <= range.Rows.Count; row++)
                         {
-                            string insertQuery = "INSERT INTO students VALUES (";
+                            string insertQuery = $"INSERT INTO [{tableName}] VALUES (";
                             for (int col = 1; col <= range.Columns.Count; col++)
                             {
                                 insertQuery += $"@param{col}";
@@ -93,7 +98,15 @@ namespace insertintodb12
                             {
                                 for (int col = 1; col <= range.Columns.Count; col++)
                                 {
-                                    insertCmd.Parameters.AddWithValue($"@param{col}", (range.Cells[row, col] as Excel.Range).Value2.ToString());
+                                    var cellValue = (range.Cells[row, col] as Excel.Range).Value2;
+                                    if (col == 1) // Assuming first column is the primary key and integer
+                                    {
+                                        insertCmd.Parameters.AddWithValue($"@param{col}", Convert.ToInt32(cellValue));
+                                    }
+                                    else
+                                    {
+                                        insertCmd.Parameters.AddWithValue($"@param{col}", cellValue.ToString());
+                                    }
                                 }
                                 insertCmd.ExecuteNonQuery();
                             }
@@ -130,13 +143,24 @@ namespace insertintodb12
             {
                 conn.Open();
 
-                using (SQLiteCommand cmd = new SQLiteCommand("SELECT * FROM students", conn))
+                // You may need to adjust this query to dynamically select the table
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT name FROM sqlite_master WHERE type='table';", conn))
                 {
-                    using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(cmd))
+                    using (SQLiteDataReader reader = cmd.ExecuteReader())
                     {
-                        DataTable dataTable = new DataTable();
-                        adapter.Fill(dataTable);
-                        dataGridView1.DataSource = dataTable;
+                        if (reader.Read())
+                        {
+                            string tableName = reader.GetString(0);
+                            using (SQLiteCommand selectCmd = new SQLiteCommand($"SELECT * FROM [{tableName}]", conn))
+                            {
+                                using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(selectCmd))
+                                {
+                                    DataTable dataTable = new DataTable();
+                                    adapter.Fill(dataTable);
+                                    dataGridView1.DataSource = dataTable;
+                                }
+                            }
+                        }
                     }
                 }
             }
