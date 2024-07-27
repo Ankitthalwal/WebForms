@@ -1,6 +1,8 @@
 using System;
 using System.Data;
+using System.Data.SqlClient;
 using System.Data.SQLite;
+using System.Reflection.Emit;
 using System.Windows.Forms;
 using Excel = Microsoft.Office.Interop.Excel;
 namespace Exceldata
@@ -44,6 +46,7 @@ namespace Exceldata
             Excel.Worksheet worksheet = workbook.Sheets[1];
             Excel.Range range = worksheet.UsedRange;
             string tableName = worksheet.Name;
+            
 
             try
             {
@@ -121,20 +124,7 @@ namespace Exceldata
             {
                 MessageBox.Show("Error: " + ex.Message);
             }
-            finally
-            {
-                // Clean up
-                if (workbook != null)
-                {
-                    workbook.Close(false);
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(workbook);
-                }
-                if (excelApp != null)
-                {
-                    excelApp.Quit();
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(excelApp);
-                }
-            }
+       
         }
 
         private void DisplayDataFromSQLite()
@@ -165,5 +155,50 @@ namespace Exceldata
                 }
             }
         }
+
+        private void btn2(object sender, EventArgs e)
+        {
+            using (SQLiteConnection conn = new SQLiteConnection("Data Source=E:\\database\\sms.db;Version=3;"))
+            {
+                conn.Open();
+
+                using (SQLiteTransaction transaction = conn.BeginTransaction())
+                {
+                    using (SQLiteCommand comm = new SQLiteCommand())
+                    {
+                        comm.Connection = conn;
+                        comm.Transaction = transaction;
+
+
+                        for (int i = 0; i < dataGridView1.Columns.Count; i++)
+                        {
+                            // Retrieve the column header text
+                            string headerText = dataGridView1.Columns[i].HeaderText;
+
+                            // Add a comma if it's not the last header
+                            MessageBox.Show(headerText);
+                        }
+                        for (int i = 0; i < dataGridView1.Rows.Count; i++)
+                        {
+                            DataGridViewRow row = dataGridView1.Rows[i];
+                            for(int j = 0; j< row.Cells.Count; j++)
+                            {
+                                MessageBox.Show(row.Cells[j].Value.ToString());
+                            }
+                        }
+
+
+                        transaction.Commit();
+                    }
+                }
+            }
+
+            MessageBox.Show("Data inserted successfully!");
+        }
+
+
+
+        //update the grid view data into the database
+
     }
 }
