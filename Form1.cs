@@ -1,17 +1,18 @@
+using Excel = Microsoft.Office.Interop.Excel;
 using System;
 using System.Data;
 using System.Data.SqlClient;
 using System.Data.SQLite;
 using System.Reflection.Emit;
 using System.Windows.Forms;
-using Excel = Microsoft.Office.Interop.Excel;
+
 namespace Exceldata
 {
     public partial class Form1 : Form
-
     {
-        private DataTable dataTable;
+        private System.Data.DataTable dataTable;
         private string excelFilePath;
+
         public Form1()
         {
             InitializeComponent();
@@ -46,7 +47,6 @@ namespace Exceldata
             Excel.Worksheet worksheet = workbook.Sheets[1];
             Excel.Range range = worksheet.UsedRange;
             string tableName = worksheet.Name;
-            
 
             try
             {
@@ -67,12 +67,7 @@ namespace Exceldata
                         }
                         else
                         {
-                            createTableQuery += $"{columnName} TEXT";
-                        }
-
-                        if (col < range.Columns.Count)
-                        {
-                            createTableQuery += ", ";
+                            createTableQuery += $", {columnName} TEXT";
                         }
                     }
                     createTableQuery += ")";
@@ -102,7 +97,11 @@ namespace Exceldata
                                 for (int col = 1; col <= range.Columns.Count; col++)
                                 {
                                     var cellValue = (range.Cells[row, col] as Excel.Range).Value2;
-                                    if (col == 1) // Assuming first column is the primary key and integer
+                                    if (cellValue == null)
+                                    {
+                                        insertCmd.Parameters.AddWithValue($"@param{col}", DBNull.Value);
+                                    }
+                                    else if (col == 1) // Assuming first column is the primary key and integer
                                     {
                                         insertCmd.Parameters.AddWithValue($"@param{col}", Convert.ToInt32(cellValue));
                                     }
@@ -124,7 +123,12 @@ namespace Exceldata
             {
                 MessageBox.Show("Error: " + ex.Message);
             }
-       
+            finally
+            {
+                // Clean up
+                workbook.Close(false);
+                excelApp.Quit();
+            }
         }
 
         private void DisplayDataFromSQLite()
@@ -145,7 +149,7 @@ namespace Exceldata
                             {
                                 using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(selectCmd))
                                 {
-                                    DataTable dataTable = new DataTable();
+                                    System.Data.DataTable dataTable = new System.Data.DataTable();
                                     adapter.Fill(dataTable);
                                     dataGridView1.DataSource = dataTable;
                                 }
@@ -156,11 +160,42 @@ namespace Exceldata
             }
         }
 
-        private void btn2(object sender, EventArgs e)
+
+        //update the data of in the current database 
+        private void btn2(object sender,EventArgs e)
         {
+
+        }
+        private void btn2_Click(object sender, EventArgs e)
+        {
+            
             using (SQLiteConnection conn = new SQLiteConnection("Data Source=E:\\database\\sms.db;Version=3;"))
             {
                 conn.Open();
+
+                // Create table based on DataGridView columns
+                string createTableQuery = "CREATE TABLE IF NOT EXISTS dummy (";
+                for (int i = 0; i < dataGridView1.Columns.Count; i++)
+                {
+                    string columnName = dataGridView1.Columns[i].HeaderText.Replace(" ", "_");
+
+                    createTableQuery += $"{columnName} TEXT";
+
+                    if (i < dataGridView1.Columns.Count - 1)
+                    {
+                        createTableQuery += ", ";
+                    }
+                }
+                createTableQuery += ");";
+
+
+
+            
+
+                using (SQLiteCommand createTableCmd = new SQLiteCommand(createTableQuery, conn))
+                {
+                    createTableCmd.ExecuteNonQuery();
+                }
 
                 using (SQLiteTransaction transaction = conn.BeginTransaction())
                 {
@@ -169,36 +204,50 @@ namespace Exceldata
                         comm.Connection = conn;
                         comm.Transaction = transaction;
 
-
-                        for (int i = 0; i < dataGridView1.Columns.Count; i++)
+                        try
                         {
-                            // Retrieve the column header text
-                            string headerText = dataGridView1.Columns[i].HeaderText;
+                            
 
-                            // Add a comma if it's not the last header
-                            MessageBox.Show(headerText);
-                        }
-                        for (int i = 0; i < dataGridView1.Rows.Count; i++)
-                        {
-                            DataGridViewRow row = dataGridView1.Rows[i];
-                            for(int j = 0; j< row.Cells.Count; j++)
+                            for (int row = 0; row < dataGridView1.Rows.Count - 1; row++) // Exclude the new row placeholder
                             {
-                                MessageBox.Show(row.Cells[j].Value.ToString());
+                                string insertQuery = "INSERT INTO dummy VALUES (";
+                                for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                                {
+                                    insertQuery += $"@param{col}";
+                                    if (col < dataGridView1.Columns.Count - 1)
+                                    {
+                                        insertQuery += ", ";
+                                    }
+                                }
+                                insertQuery += ")";
+
+                                using (SQLiteCommand insertCmd = new SQLiteCommand(insertQuery, conn))
+                                {
+                                    for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                                    {
+                                        var cellValue = dataGridView1.Rows[row].Cells[col].Value;
+                                        if (cellValue == null)
+                                        {
+                                            insertCmd.Parameters.AddWithValue($"@param{col}", DBNull.Value);
+                                        }
+                                        else
+                                        {
+                                            insertCmd.Parameters.AddWithValue($"@param{col}", cellValue);
+                                        }
+                                    }
+                                    insertCmd.ExecuteNonQuery();
+                                }
                             }
+                            transaction.Commit();
                         }
-
-
-                        transaction.Commit();
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            MessageBox.Show($"Error: {ex.Message}");
+                        }
                     }
                 }
             }
-
-            MessageBox.Show("Data inserted successfully!");
         }
-
-
-
-        //update the grid view data into the database
-
     }
 }
