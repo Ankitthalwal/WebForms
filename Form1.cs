@@ -5,20 +5,23 @@ using System.Data.SqlClient;
 using OfficeOpenXml;
 using System.IO;
 using System.Collections.Generic;
+
+
 namespace Exceldatatodb
 {
     public partial class Form1 : Form
     {
         private string excelFilePath;
-        string tableName = "temporary";
+        string tableName = "db_1";
         private string db = "Data Source=SCIENCE-04\\SQLEXPRESS;Initial Catalog=db;Integrated Security=True";
-        bool  new_importedfile=false;
+        bool new_importedfile = false;
+        public static DataTable dt = new DataTable();
 
         public Form1()
         {
             InitializeComponent();
         }
-
+         
         //import the excel file
 
         private void Import_Excel(object sender, EventArgs e)
@@ -33,8 +36,9 @@ namespace Exceldatatodb
                     DisplayData();
                     if (!new_importedfile)
                     {
-                        ReadAndInsertExcelData1();
-                        new_importedfile = true;
+                      
+                     ReadAndInsertExcelData1();
+                      new_importedfile = true;
                     }
                 }
                 else
@@ -45,8 +49,6 @@ namespace Exceldatatodb
             }
 
         }
-
-
 
         //display excel data
         private void DisplayData()
@@ -63,24 +65,24 @@ namespace Exceldatatodb
                 using (ExcelPackage package = new ExcelPackage(fileInfo))
                 {
                     ExcelWorksheet worksheet = package.Workbook.Worksheets[0];
-                    DataTable dataTable = new DataTable();
+                    dt = new DataTable();
                     for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
                     {
-                        dataTable.Columns.Add(worksheet.Cells[1, col].Text);
+                     dt.Columns.Add(worksheet.Cells[1, col].Text);
                     }
 
                     // Add rows
                     for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
                     {
-                        DataRow dataRow = dataTable.NewRow();
+                        DataRow dataRow = dt.NewRow();
                         for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
                         {
                             dataRow[col - 1] = worksheet.Cells[row, col].Text;
                         }
-                        dataTable.Rows.Add(dataRow);
+                       dt.Rows.Add(dataRow);
                     }
 
-                    dataGridView1.DataSource = dataTable;
+                    dataGridView1.DataSource = dt;
                     dataGridView1.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
                     MessageBox.Show("Imported successfully");
                 }
@@ -98,75 +100,82 @@ namespace Exceldatatodb
         //save data into db using Officeopenxml
         private void ReadAndInsertExcelData1()
         {
+
             try
             {
                 using (SqlConnection conn = new SqlConnection(db))
                 {
                     conn.Open();
-                    string CreateTableQuery = $"CREATE TABLE [{tableName}] (";
-                    for (int col = 0; col < dataGridView1.Columns.Count; col++)
+
+                    // Check if the table exists
+                    string checkTableQuery = $"IF OBJECT_ID(N'{tableName}', 'U') IS NULL SELECT 1 ELSE SELECT 0";
+
+                    using (SqlCommand checkTableCmd = new SqlCommand(checkTableQuery, conn))
                     {
-                        string columnName = dataGridView1.Columns[col].HeaderText;
-                        if (col == 0)
-                        {
-                            CreateTableQuery += $"{columnName} INT PRIMARY KEY";
-                        }
-                        else
-                        {
-                            CreateTableQuery += $", {columnName} TEXT";
-                        }
-                    }
-                    CreateTableQuery += ")";
+                        int tableExists = (int)checkTableCmd.ExecuteScalar();
 
-                    using (SqlCommand createTableCmd = new SqlCommand(CreateTableQuery, conn))
-                    {
-                        createTableCmd.ExecuteNonQuery();
-                    }
-
-                    for (int row = 0; row < dataGridView1.Rows.Count; row++)
-                    {
-                        if (dataGridView1.Rows[row].IsNewRow) continue;
-
-                        string insertQuery = $"INSERT INTO [{tableName}] VALUES (";
-                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                        if (tableExists == 1)
                         {
-                            insertQuery += $"@param{col}";
-                            if (col < dataGridView1.Columns.Count - 1)
-                            {
-                                insertQuery += ", ";
-                            }
-                        }
-                        insertQuery += ")";
-
-                        using (SqlCommand insertCmd = new SqlCommand(insertQuery, conn))
-                        {
+                            // Create table query
+                            string createTableQuery = $"CREATE TABLE [{tableName}] (";
                             for (int col = 0; col < dataGridView1.Columns.Count; col++)
                             {
-                                var cellValue = dataGridView1.Rows[row].Cells[col].Value;
-                                if (cellValue == null)
+                                string columnName = dataGridView1.Columns[col].HeaderText;
+                                if (col == 0)
                                 {
-                                    insertCmd.Parameters.AddWithValue($"@param{col}", DBNull.Value);
+                                    createTableQuery += $"[{columnName}] INT PRIMARY KEY";
                                 }
                                 else
                                 {
-                                    insertCmd.Parameters.AddWithValue($"@param{col}", cellValue.ToString());
+                                    createTableQuery += $", [{columnName}] TEXT";
                                 }
                             }
-                            insertCmd.ExecuteNonQuery();
+                            createTableQuery += ")";
+
+                            // Execute the create table query
+                            using (SqlCommand createTableCmd = new SqlCommand(createTableQuery, conn))
+                            {
+                                createTableCmd.ExecuteNonQuery();
+                            }
+                        }
+                        else
+                        { 
+                            return;
                         }
                     }
                 }
+
+                // Assuming `bulkcopy()` is a method for bulk insert
+                bulkcopy();
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error: {ex.Message}");
             }
+
         }
 
-    
-
-
-   
+        private void bulkcopy()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(db))
+                {
+                    conn.Open();
+                    using (SqlBulkCopy bulkCopy = new SqlBulkCopy(conn))
+                    {
+                        bulkCopy.DestinationTableName = tableName;
+                        bulkCopy.WriteToServer(dt); // Make sure dt is properly initialized and populated
+                    }
+                    MessageBox.Show("Successfully Inserted");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Bulk copy error: {ex.Message}");
+            }
+        }
+      
 
 
 
@@ -324,7 +333,7 @@ namespace Exceldatatodb
                     }
 
                     MessageBox.Show("Finalized Successfully");
-                    showupdateddata();
+                    showupdateddata(tableName);
                 }
                 catch (Exception ex)
                 {
@@ -342,11 +351,21 @@ namespace Exceldatatodb
 
 
         //Show Updated database
-        private  void Show_Updated(object sender, EventArgs e)
+        private void Show_Updated(object sender, EventArgs e)
         {
-            showupdateddata();
+            showupdateddata(tableName);
         }
-        public async  void showupdateddata()
+
+        private void Showfinalized(object sender, EventArgs e)
+        {
+            string tablename = "finalize";
+            showupdateddata(tablename);
+        }
+
+
+
+
+        public void showupdateddata(string tablename)
         {
             string connectionString = db;
 
@@ -354,37 +373,14 @@ namespace Exceldatatodb
             {
                 using (SqlConnection conn = new SqlConnection(connectionString))
                 {
-                    await conn.OpenAsync();
-                    string getTablesQuery = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'";
-                    string tableName = null;
-
-                    using (SqlCommand cmd = new SqlCommand(getTablesQuery, conn))
+                    // Query to select all data from the first table
+                    string selectQuery = $"SELECT * FROM [{tablename}]";
+                    using (SqlDataAdapter da = new SqlDataAdapter(selectQuery, conn))
                     {
-                        using (SqlDataReader reader = await cmd.ExecuteReaderAsync())
-                        {
-                            if (await reader.ReadAsync())
-                            {
-                                tableName = reader.GetString(0);
-                            }
-                        }
-                    }
-
-                    if (tableName != null)
-                    {
-                        // Query to select all data from the first table
-                        string selectQuery = $"SELECT * FROM [{tableName}]";
-                        using (SqlDataAdapter da = new SqlDataAdapter(selectQuery, conn))
-                        {
-                            SqlCommandBuilder commandBuilder = new SqlCommandBuilder(da);
-                            DataTable dataTable = new DataTable();
-                            da.Fill(dataTable);
-                            dataGridView1.DataSource = dataTable;
-                        }
-                    }
-
-                    else
-                    {
-                        MessageBox.Show("No tables found in the database.");
+                        SqlCommandBuilder commandBuilder = new SqlCommandBuilder(da);
+                        DataTable dataTable = new DataTable();
+                        da.Fill(dataTable);
+                        dataGridView1.DataSource = dataTable;
                     }
                 }
             }
@@ -394,11 +390,6 @@ namespace Exceldatatodb
             }
         }
 
-
-       
-
+      
     }
-
-
 }
-
