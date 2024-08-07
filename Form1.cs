@@ -14,7 +14,7 @@ namespace Exceldatatodb
         private string excelFilePath;
         string tableName = "db_1";
         private string db = "Data Source=SCIENCE-04\\SQLEXPRESS;Initial Catalog=db;Integrated Security=True";
-        bool new_importedfile = false;
+       
         public static DataTable dt = new DataTable();
 
         public Form1()
@@ -34,12 +34,7 @@ namespace Exceldatatodb
                 {
                     excelFilePath = openFileDialog.FileName;
                     DisplayData();
-                    if (!new_importedfile)
-                    {
-                      
-                     ReadAndInsertExcelData1();
-                      new_importedfile = true;
-                    }
+                    ReadAndInsertExcelData1();   
                 }
                 else
                 {
@@ -106,16 +101,7 @@ namespace Exceldatatodb
                 using (SqlConnection conn = new SqlConnection(db))
                 {
                     conn.Open();
-
-                    // Check if the table exists
-                    string checkTableQuery = $"IF OBJECT_ID(N'{tableName}', 'U') IS NULL SELECT 1 ELSE SELECT 0";
-
-                    using (SqlCommand checkTableCmd = new SqlCommand(checkTableQuery, conn))
-                    {
-                        int tableExists = (int)checkTableCmd.ExecuteScalar();
-
-                        if (tableExists == 1)
-                        {
+                   
                             // Create table query
                             string createTableQuery = $"CREATE TABLE [{tableName}] (";
                             for (int col = 0; col < dataGridView1.Columns.Count; col++)
@@ -137,15 +123,9 @@ namespace Exceldatatodb
                             {
                                 createTableCmd.ExecuteNonQuery();
                             }
-                        }
-                        else
-                        { 
-                            return;
-                        }
+                       
                     }
-                }
-
-                // Assuming `bulkcopy()` is a method for bulk insert
+                
                 bulkcopy();
             }
             catch (Exception ex)
@@ -165,7 +145,7 @@ namespace Exceldatatodb
                     using (SqlBulkCopy bulkCopy = new SqlBulkCopy(conn))
                     {
                         bulkCopy.DestinationTableName = tableName;
-                        bulkCopy.WriteToServer(dt); // Make sure dt is properly initialized and populated
+                        bulkCopy.WriteToServer(dt); 
                     }
                     MessageBox.Show("Successfully Inserted");
                 }
@@ -175,7 +155,7 @@ namespace Exceldatatodb
                 MessageBox.Show($"Bulk copy error: {ex.Message}");
             }
         }
-      
+
 
 
 
@@ -185,121 +165,24 @@ namespace Exceldatatodb
         {
             try
             {
-                dataGridView1.EndEdit();
-
-                // Step 1: Fetch existing IDs from the database
-                List<string> existingIds = new List<string>();
                 using (SqlConnection conn = new SqlConnection(db))
                 {
-                    conn.Open();
-
-                    // Retrieve existing IDs
-                    string selectQuery = $"SELECT ID FROM {tableName}";
-                    using (SqlCommand selectCmd = new SqlCommand(selectQuery, conn))
+                    conn.Open(); 
+                    string TruncateQuery = $"TRUNCATE TABLE [{tableName}]";
+                    using (SqlCommand truncatatecmd = new SqlCommand(TruncateQuery,conn))
                     {
-                        using (SqlDataReader reader = selectCmd.ExecuteReader())
-                        {
-                            while (reader.Read())
-                            {
-                                existingIds.Add(reader["ID"].ToString());
-                            }
-                        }
+                        truncatatecmd.ExecuteNonQuery();
                     }
-
-                    // Step 2: Update existing records
-                    foreach (DataGridViewRow row in dataGridView1.Rows)
-                    {
-                        if (row.IsNewRow) continue;
-
-                        string idValue = row.Cells["ID"].Value.ToString();
-
-                        if (existingIds.Contains(idValue))
-                        {
-                            string updateQuery = $"UPDATE {tableName} SET ";
-
-                            for (int col = 1; col < dataGridView1.Columns.Count; col++)
-                            {
-                                string columnName = dataGridView1.Columns[col].HeaderText;
-                                updateQuery += $"{columnName}=@param{col}";
-                                if (col < dataGridView1.Columns.Count - 1)
-                                {
-                                    updateQuery += ", ";
-                                }
-                            }
-
-                            updateQuery += $" WHERE ID = @id";
-
-                            using (SqlCommand updateCmd = new SqlCommand(updateQuery, conn))
-                            {
-                                for (int col = 1; col < dataGridView1.Columns.Count; col++)
-                                {
-                                    var cellValue = row.Cells[col].Value;
-                                    updateCmd.Parameters.AddWithValue($"@param{col}", cellValue ?? (object)DBNull.Value);
-                                }
-
-                                updateCmd.Parameters.AddWithValue("@id", idValue);
-                                updateCmd.ExecuteNonQuery();
-                            }
-                        }
-                    }
-
-                    // Step 3: Insert new records
-                    foreach (DataGridViewRow row in dataGridView1.Rows)
-                    {
-                        if (row.IsNewRow) continue;
-
-                        string idValue = row.Cells["ID"].Value.ToString();
-
-                        if (!existingIds.Contains(idValue))
-                        {
-                            string insertQuery = $"INSERT INTO {tableName} (";
-
-                            // Columns
-                            for (int col = 0; col < dataGridView1.Columns.Count; col++)
-                            {
-                                string columnName = dataGridView1.Columns[col].HeaderText;
-                                insertQuery += $"{columnName}";
-                                if (col < dataGridView1.Columns.Count - 1)
-                                {
-                                    insertQuery += ", ";
-                                }
-                            }
-
-                            insertQuery += ") VALUES (";
-
-                            // Parameters
-                            for (int col = 0; col < dataGridView1.Columns.Count; col++)
-                            {
-                                insertQuery += $"@param{col}";
-                                if (col < dataGridView1.Columns.Count - 1)
-                                {
-                                    insertQuery += ", ";
-                                }
-                            }
-
-                            insertQuery += ")";
-
-                            using (SqlCommand insertCmd = new SqlCommand(insertQuery, conn))
-                            {
-                                for (int col = 0; col < dataGridView1.Columns.Count; col++)
-                                {
-                                    var cellValue = row.Cells[col].Value;
-                                    insertCmd.Parameters.AddWithValue($"@param{col}", cellValue ?? (object)DBNull.Value);
-                                }
-
-                                insertCmd.ExecuteNonQuery();
-                            }
-                        }
-                    }
+                    bulkcopy();
                 }
-
-                MessageBox.Show("Data updated successfully");
+                
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"An error occurred: {ex.Message}");
             }
         }
+
 
 
 
@@ -389,7 +272,17 @@ namespace Exceldatatodb
                 MessageBox.Show($"An error occurred: {ex.Message}");
             }
         }
-
-      
+        HashSet<int> rowIds = new HashSet<int>();
+        
+        private void Update2(object sender, EventArgs e)
+        {
+            if (dataGridView1.SelectedCells.Count > 0)
+            {
+                string id = dataGridView1.Rows[dataGridView1.SelectedCells[0].RowIndex].Cells[0].Value.ToString();
+                int number = int.Parse(id);
+                rowIds.Add(number);
+                MessageBox.Show($"{number}");
+            }
+        }
     }
 }
