@@ -1,111 +1,408 @@
-HashSet<int> set = new HashSet<int>();
+using System;
+using System.Data;
+using System.Windows.Forms;
+using System.Data.SqlClient;
+using OfficeOpenXml;
+using System.IO;
+using System.Collections.Generic;
 
-private void button5_Click(object sender, EventArgs e)
-{
-    getid();  // Get the ID of the selected row and store it in the HashSet
-}
 
-private void getid()
+namespace Exceldatatodb
 {
-    if (dataGridView1.SelectedCells.Count > 0)
+    public partial class Form1 : Form
     {
-        string id = dataGridView1.Rows[dataGridView1.SelectedCells[0].RowIndex].Cells[0].Value.ToString();
-        int number = int.Parse(id);
-        set.Add(number);
-        MessageBox.Show($"ID {number} added to update list.");
-    }
-}
+        private string excelFilePath;
+        string tableName = "db_1";
+        private string db = "Data Source=SCIENCE-04\\SQLEXPRESS;Initial Catalog=db;Integrated Security=True";
 
-public void updatesParticularColumn()
-{
-    using (SqlConnection conn = new SqlConnection(db))
-    {
-        conn.Open();
+        public static DataTable dt = new DataTable();
+           HashSet<int> set = new HashSet<int>();
 
-        foreach (var id in set)
+        public Form1()
         {
-            // First, check if the ID exists in the table
-            string checkQuery = $"SELECT COUNT(*) FROM [{tableName}] WHERE ID = @id";
-            using (SqlCommand checkCmd = new SqlCommand(checkQuery, conn))
+            InitializeComponent();
+        }
+
+        //import the excel file
+
+        private void Import_Excel(object sender, EventArgs e)
+        {
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
             {
-                checkCmd.Parameters.AddWithValue("@id", id);
-                int count = (int)checkCmd.ExecuteScalar();
-
-                if (count > 0)
+                openFileDialog.Filter = "Excel Files|*.xls;*.xlsx;*.xls";
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
-                    // ID exists, update the other columns
-                    string updateQuery = $"UPDATE [{tableName}] SET ";
-
-                    for (int col = 0; col < dataGridView1.Columns.Count; col++)
-                    {
-                        if (dataGridView1.Columns[col].HeaderText == "ID") continue; // Skip the ID column
-
-                        string columnName = dataGridView1.Columns[col].HeaderText;
-                        updateQuery += $"{columnName}=@param{col}";
-                        if (col < dataGridView1.Columns.Count - 1)
-                        {
-                            updateQuery += ", ";
-                        }
-                    }
-
-                    updateQuery += $" WHERE ID = @id";
-
-                    using (SqlCommand updateCmd = new SqlCommand(updateQuery, conn))
-                    {
-                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
-                        {
-                            if (dataGridView1.Columns[col].HeaderText == "ID") continue;
-
-                            var cellValue = dataGridView1.Rows[0].Cells[col].Value;
-                            updateCmd.Parameters.AddWithValue($"@param{col}", cellValue ?? DBNull.Value);
-                        }
-
-                        updateCmd.Parameters.AddWithValue("@id", id);
-                        updateCmd.ExecuteNonQuery();
-                    }
+                    excelFilePath = openFileDialog.FileName;
+                    DisplayData();
+                    ReadAndInsertExcelData1();
                 }
                 else
                 {
-                    // ID does not exist, insert a new row
-                    string insertQuery = $"INSERT INTO [{tableName}] (";
+                    MessageBox.Show("Please select an Excel File.");
+                    return;
+                }
+            }
 
+        }
+
+        //display excel data
+        private void DisplayData()
+        {
+            if (string.IsNullOrEmpty(excelFilePath))
+            {
+                MessageBox.Show("No Excel file has been selected.");
+                return;
+            }
+            try
+            {
+                FileInfo fileInfo = new FileInfo(excelFilePath);
+
+                using (ExcelPackage package = new ExcelPackage(fileInfo))
+                {
+                    ExcelWorksheet worksheet = package.Workbook.Worksheets[0];
+                    dt = new DataTable();
+                    for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                    {
+                        dt.Columns.Add(worksheet.Cells[1, col].Text);
+                    }
+
+                    // Add rows
+                    for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
+                    {
+                        DataRow dataRow = dt.NewRow();
+                        for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                        {
+                            dataRow[col - 1] = worksheet.Cells[row, col].Text;
+                        }
+                        dt.Rows.Add(dataRow);
+                    }
+
+                    dataGridView1.DataSource = dt;
+                    dataGridView1.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+                    MessageBox.Show("Imported successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred: {ex.Message}");
+            }
+
+        }
+
+
+
+
+        //save data into db using Officeopenxml
+        private void ReadAndInsertExcelData1()
+        {
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(db))
+                {
+                    conn.Open();
+
+                    // Create table query
+                    string createTableQuery = $"CREATE TABLE [{tableName}] (";
                     for (int col = 0; col < dataGridView1.Columns.Count; col++)
                     {
                         string columnName = dataGridView1.Columns[col].HeaderText;
-                        insertQuery += columnName;
-                        if (col < dataGridView1.Columns.Count - 1)
+                        if (col == 0)
                         {
-                            insertQuery += ", ";
+                            createTableQuery += $"[{columnName}] INT PRIMARY KEY";
+                        }
+                        else
+                        {
+                            createTableQuery += $", [{columnName}] TEXT";
                         }
                     }
+                    createTableQuery += ")";
 
-                    insertQuery += ") VALUES (";
-
-                    for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                    // Execute the create table query
+                    using (SqlCommand createTableCmd = new SqlCommand(createTableQuery, conn))
                     {
-                        insertQuery += $"@param{col}";
-                        if (col < dataGridView1.Columns.Count - 1)
-                        {
-                            insertQuery += ", ";
-                        }
+                        createTableCmd.ExecuteNonQuery();
                     }
 
-                    insertQuery += ")";
-
-                    using (SqlCommand insertCmd = new SqlCommand(insertQuery, conn))
-                    {
-                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
-                        {
-                            var cellValue = dataGridView1.Rows[0].Cells[col].Value;
-                            insertCmd.Parameters.AddWithValue($"@param{col}", cellValue ?? DBNull.Value);
-                        }
-
-                        insertCmd.ExecuteNonQuery();
-                    }
                 }
+
+                bulkcopy();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}");
+            }
+
+        }
+
+        private void bulkcopy()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(db))
+                {
+                    conn.Open();
+                    using (SqlBulkCopy bulkCopy = new SqlBulkCopy(conn))
+                    {
+                        bulkCopy.DestinationTableName = tableName;
+                        bulkCopy.WriteToServer(dt);
+                    }
+                    MessageBox.Show("Successfully Inserted");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Bulk copy error: {ex.Message}");
             }
         }
 
-        MessageBox.Show("Update/Insert operation completed successfully!");
+
+        //edit Mode
+        private void Edit_Row(object sender, EventArgs e)
+        {
+
+            getid();  
+        }
+
+        private void getid()
+        {
+            if (dataGridView1.SelectedCells.Count > 0)
+            {
+                string id = dataGridView1.Rows[dataGridView1.SelectedCells[0].RowIndex].Cells[0].Value.ToString();
+                if (int.TryParse(id, out int number))
+                {
+                    set.Add(number);
+                   
+                }
+                
+            }
+        }
+
+
+
+
+        //Update the current data
+
+        private void Update_Data(object sender, EventArgs e)
+        {
+            //updation
+            using (SqlConnection conn = new SqlConnection(db))
+            {
+                conn.Open();
+
+
+                foreach (var id in set)
+                {
+
+                    for (int row = 0; row < dataGridView1.Rows.Count - 1; row++)
+                    {
+                        var id1 = dataGridView1.Rows[row].Cells[0].Value;
+                        //Update
+                        if (id1 != null && int.TryParse(id1.ToString(), out int rowId) && rowId == id)
+                        {
+                            string updateQuery = $"UPDATE [{tableName}] SET ";
+                            for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                            {
+
+                                string columnName = dataGridView1.Columns[col].HeaderText;
+                                updateQuery += $"{columnName}=@param{col}";
+                                if (col < dataGridView1.Columns.Count - 1)
+                                {
+                                    updateQuery += ",";
+                                }
+                            }
+
+                            updateQuery += $" WHERE ID=@id";
+
+                            using (SqlCommand updatecmd = new SqlCommand(updateQuery, conn))
+                            {
+                                for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                                {
+                                    if (dataGridView1.Columns[col].HeaderText == "ID") continue;
+                                    var cellValue = dataGridView1.Rows[row].Cells[col].Value;
+                                    updatecmd.Parameters.AddWithValue($"@param{col}", cellValue ?? DBNull.Value);
+                                }
+                                updatecmd.Parameters.AddWithValue("@id", id);
+                                updatecmd.ExecuteNonQuery();
+                            }
+
+                            MessageBox.Show("update successfully");
+                            break;
+                        }
+
+                    }
+
+                }
+
+            }
+   
+            List<string> existingIds = new List<string>();
+            using (SqlConnection conn = new SqlConnection(db))
+            {
+                conn.Open();
+
+
+                string selectQuery = $"SELECT ID FROM {tableName}";
+                using (SqlCommand selectCmd = new SqlCommand(selectQuery, conn))
+                {
+                    using (SqlDataReader reader = selectCmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            existingIds.Add(reader["ID"].ToString());
+                        }
+                    }
+                }
+
+
+                // Step 3: Insert new records
+                foreach (DataGridViewRow row in dataGridView1.Rows)
+                {
+                    if (row.IsNewRow) continue;
+
+                    string idValue = row.Cells["ID"].Value.ToString();
+
+                    if (!existingIds.Contains(idValue))
+                    {
+                        string insertQuery = $"INSERT INTO {tableName} (";
+
+                        // Columns
+                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                        {
+                            string columnName = dataGridView1.Columns[col].HeaderText;
+                            insertQuery += $"{columnName}";
+                            if (col < dataGridView1.Columns.Count - 1)
+                            {
+                                insertQuery += ", ";
+                            }
+                        }
+
+                        insertQuery += ") VALUES (";
+
+                        // Parameters
+                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                        {
+                            insertQuery += $"@param{col}";
+                            if (col < dataGridView1.Columns.Count - 1)
+                            {
+                                insertQuery += ", ";
+                            }
+                        }
+
+                        insertQuery += ")";
+
+                        using (SqlCommand insertCmd = new SqlCommand(insertQuery, conn))
+                        {
+                            for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                            {
+                                var cellValue = row.Cells[col].Value;
+                                insertCmd.Parameters.AddWithValue($"@param{col}", cellValue ?? (object)DBNull.Value);
+                            }
+
+                            insertCmd.ExecuteNonQuery();
+                        }
+                        MessageBox.Show("Data updated successfully");
+                        break;
+                    }
+                }
+            }
+
+           
+        }
+
+
+
+
+
+        //finalize the  into data
+
+        private void Finalize_btn(object sender, EventArgs e)
+        {
+            using (SqlConnection conn = new SqlConnection(db))
+            {
+                try
+                {
+                    conn.Open();
+                    string createTableQuery = $"SELECT * INTO finalize FROM [{tableName}] WHERE 1 = 0";
+                    using (SqlCommand createTableCmd = new SqlCommand(createTableQuery, conn))
+                    {
+                        createTableCmd.ExecuteNonQuery();
+                    }
+
+
+                    string insertDataQuery = $"INSERT INTO finalize SELECT * FROM [{tableName}]";
+                    using (SqlCommand insertCmd = new SqlCommand(insertDataQuery, conn))
+                    {
+                        insertCmd.ExecuteNonQuery();
+                    }
+
+                    string TruncateQuery = $"Truncate table [{tableName}] ";
+                    using (SqlCommand TruncateCmd = new SqlCommand(TruncateQuery, conn))
+                    {
+                        TruncateCmd.ExecuteNonQuery();
+                    }
+
+                    MessageBox.Show("Finalized Successfully");
+                    showupdateddata(tableName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error: {ex.Message}");
+                }
+
+            }
+        }
+
+
+
+
+
+
+
+
+        //Show Updated database
+        private void Show_Updated(object sender, EventArgs e)
+        {
+            showupdateddata(tableName);
+        }
+
+        private void Showfinalized(object sender, EventArgs e)
+        {
+            string tablename = "finalize";
+            showupdateddata(tablename);
+        }
+
+
+
+
+        public void showupdateddata(string tablename)
+        {
+            string connectionString = db;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(connectionString))
+                {
+                    // Query to select all data from the first table
+                    string selectQuery = $"SELECT * FROM [{tablename}]";
+                    using (SqlDataAdapter da = new SqlDataAdapter(selectQuery, conn))
+                    {
+                        SqlCommandBuilder commandBuilder = new SqlCommandBuilder(da);
+                        DataTable dataTable = new DataTable();
+                        da.Fill(dataTable);
+                        dataGridView1.DataSource = dataTable;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred: {ex.Message}");
+            }
+        }
+     
+
+    
     }
+    
 }
