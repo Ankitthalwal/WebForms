@@ -1,17 +1,15 @@
-
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Data.Common;
 using System.Data.SQLite;
+using System.Data;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using Excel = Microsoft.Office.Interop.Excel;
 using ExcelDataReader;
 
-
-namespace Cameradetailstodb
+namespace Cmaeradetailstodb
 {
     public partial class Form1 : Form
     {
@@ -26,42 +24,37 @@ namespace Cameradetailstodb
         private DataTable dt = new DataTable();
         List<string> Table_headers1 = new List<string>();
 
-
         private void Import_Excel(object sender, EventArgs e)
         {
             create_database();
 
             using (OpenFileDialog openFileDialog = new OpenFileDialog())
             {
-               
-
-                openFileDialog.Filter = "Excel Files|*.xls;*.xlsx;*.xls";
+                openFileDialog.Filter = "Excel Files|*.xls;*.xlsx;*.xlsm";
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
                     excelFilePath = openFileDialog.FileName;
-                   if(Validate_ExcelSheet_with_dbTable())
+                    if (Validate_ExcelSheet_with_dbTable())
                     {
                         ReadAndStoreExcelData();
                         dataGridView1.DataSource = dt;
-                       // InsertDataIntoDb();
+                        InsertDataIntoDb();
                     }
                     else
                     {
-                        MessageBox.Show("Excel Sheet Columns does not match with our table columns");
+                        MessageBox.Show("Excel Sheet Columns do not match with our table columns");
                     }
                 }
                 else
                 {
                     MessageBox.Show("Please select an Excel File.");
                 }
-
             }
         }
 
-        //Create databse 
         private void create_database()
         {
-            string directoryPath = @"E:\CATRAT\database";
+            string directoryPath = @"E:\catrat\db";
             string databaseName = "MyDatabase.sqlite";
             string databasePath = Path.Combine(directoryPath, databaseName);
 
@@ -69,14 +62,12 @@ namespace Cameradetailstodb
             using (SQLiteConnection conn = new SQLiteConnection(connectionString))
             {
                 conn.Open();
-
                 string sql = $"CREATE TABLE IF NOT EXISTS [{tableName}] (" +
                              "ID INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                             "Camera_ID TEXT NOT NULL, Block_ID INTEGER NOT NULL, Long_D REAL NOT NULL, " +
+                             "Camera_ID TEXT, Block_ID INTEGER NOT NULL, Long_D REAL NOT NULL, " +
                              "Long_M REAL NOT NULL, Long_S REAL NOT NULL, Lat_D REAL NOT NULL, Lat_M REAL NOT NULL, " +
-                             "Lat_S REAL NOT NULL, Remarks TEXT , D1 TEXT NOT NULL, D2 TEXT NOT NULL, D3 TEXT NOT NULL, " +
+                             "Lat_S REAL NOT NULL, Remarks TEXT, D1 TEXT NOT NULL, D2 TEXT NOT NULL, D3 TEXT NOT NULL, " +
                              "D4 TEXT NOT NULL, D5 TEXT NOT NULL)";
-
                 using (SQLiteCommand command = new SQLiteCommand(sql, conn))
                 {
                     command.ExecuteNonQuery();
@@ -85,32 +76,61 @@ namespace Cameradetailstodb
             }
         }
 
-        //Read and store Excel data into database temporary table
         private void ReadAndStoreExcelData()
         {
-
-
             System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
             using (var stream = File.Open(excelFilePath, FileMode.Open, FileAccess.Read))
             {
-                // Create an IExcelDataReader instance based on the file format
                 using (var reader = ExcelDataReader.ExcelReaderFactory.CreateReader(stream))
                 {
-                    // Convert the Excel data to a DataSet
                     var configuration1 = new ExcelDataSetConfiguration
                     {
                         ConfigureDataTable = _ => new ExcelDataTableConfiguration
                         {
-                            UseHeaderRow = false
+                            UseHeaderRow = true // Use header row for column names
                         }
                     };
 
                     var dataSet = reader.AsDataSet(configuration1);
+
+                    if (dataSet.Tables.Count > 0)
+                    {
+                        var sheet = dataSet.Tables[0]; // Assuming you want to work with the first table
+
+                        // Create a new DataTable to hold the filtered data
+                        var filteredTable = new DataTable();
+
+                        // Add columns to the filtered table only if they are in Table_headers1
+                        foreach (DataColumn column in sheet.Columns)
+                        {
+                            var headerString = column.ColumnName;
+                            if (Table_headers1.Contains(headerString.ToLower()))
+                            {
+                                filteredTable.Columns.Add(headerString);
+                            }
+                        }
+
+                        // Add rows to the filtered table
+                        foreach (DataRow row in sheet.Rows)
+                        {
+                            var newRow = filteredTable.NewRow();
+                            foreach (DataColumn column in filteredTable.Columns)
+                            {
+                                var headerString = column.ColumnName;
+                                var originalColumnIndex = sheet.Columns.IndexOf(headerString);
+                                if (originalColumnIndex >= 0)
+                                {
+                                    newRow[headerString] = row[originalColumnIndex];
+                                }
+                            }
+                            filteredTable.Rows.Add(newRow);
+                        }
+
+                        dt = filteredTable; // Assign the filtered DataTable to dt
+                    }
                 }
             }
-
-
         }
 
         private void InsertDataIntoDb()
@@ -121,28 +141,29 @@ namespace Cameradetailstodb
                 {
                     conn.Open();
 
-                    for (int i = 0; i < dataGridView1.Rows.Count-1; i++)
+                    foreach (DataGridViewRow row in dataGridView1.Rows)
                     {
-                        string query = $@"INSERT INTO [{tableName}]  ( Camera_ID, Block_ID, Long_D, Long_M, Long_S, Lat_D, Lat_M, Lat_S, Remarks, D1, D2, D3, D4, D5) 
-                                 VALUES ( @Camera_ID, @Block_ID, @Long_D, @Long_M, @Long_S, @Lat_D, @Lat_M, @Lat_S, @Remarks, @D1, @D2, @D3, @D4, @D5)";
+                        if (row.IsNewRow) continue;
+
+                        string query = $@"INSERT INTO [{tableName}]  (Camera_ID, Block_ID, Long_D, Long_M, Long_S, Lat_D, Lat_M, Lat_S, Remarks, D1, D2, D3, D4, D5) 
+                                         VALUES (@Camera_ID, @Block_ID, @Long_D, @Long_M, @Long_S, @Lat_D, @Lat_M, @Lat_S, @Remarks, @D1, @D2, @D3, @D4, @D5)";
 
                         using (SQLiteCommand comm = new SQLiteCommand(query, conn))
                         {
-                           
-                            comm.Parameters.AddWithValue("@Camera_ID", dataGridView1.Rows[i].Cells["Camera_ID"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Block_ID", dataGridView1.Rows[i].Cells["Block_ID"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Long_D", dataGridView1.Rows[i].Cells["Long_D"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Long_M", dataGridView1.Rows[i].Cells["Long_M"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Long_S", dataGridView1.Rows[i].Cells["Long_S"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Lat_D", dataGridView1.Rows[i].Cells["Lat_D"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Lat_M", dataGridView1.Rows[i].Cells["Lat_M"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Lat_S", dataGridView1.Rows[i].Cells["Lat_S"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@Remarks", dataGridView1.Rows[i].Cells["Remarks"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@D1", dataGridView1.Rows[i].Cells["D1"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@D2", dataGridView1.Rows[i].Cells["D2"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@D3", dataGridView1.Rows[i].Cells["D3"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@D4", dataGridView1.Rows[i].Cells["D4"].Value ?? DBNull.Value);
-                            comm.Parameters.AddWithValue("@D5", dataGridView1.Rows[i].Cells["D5"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Camera_ID", row.Cells["Camera_ID"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Block_ID", row.Cells["Block_ID"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Long_D", row.Cells["Long_D"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Long_M", row.Cells["Long_M"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Long_S", row.Cells["Long_S"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Lat_D", row.Cells["Lat_D"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Lat_M", row.Cells["Lat_M"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Lat_S", row.Cells["Lat_S"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@Remarks", row.Cells["Remarks"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@D1", row.Cells["D1"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@D2", row.Cells["D2"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@D3", row.Cells["D3"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@D4", row.Cells["D4"].Value ?? DBNull.Value);
+                            comm.Parameters.AddWithValue("@D5", row.Cells["D5"].Value ?? DBNull.Value);
 
                             comm.ExecuteNonQuery();
                         }
@@ -157,49 +178,36 @@ namespace Cameradetailstodb
             }
         }
 
-
-
-
-
-
-
-
-
         private bool Validate_ExcelSheet_with_dbTable()
         {
-
             List<string> Excel_headers = new List<string>();
-            
 
-            
-            //store all headers of excel to list (Excel_headers)
-                Excel.Application xlApp = new Excel.Application();
-                Excel.Workbook xlWorkbook = xlApp.Workbooks.Open(excelFilePath);
-                Excel._Worksheet xlWorksheet = xlWorkbook.Sheets[1];
-                Excel.Range xlRange = xlWorksheet.UsedRange;
+            // Store all headers of Excel to list (Excel_headers)
+            Excel.Application xlApp = new Excel.Application();
+            Excel.Workbook xlWorkbook = xlApp.Workbooks.Open(excelFilePath);
+            Excel._Worksheet xlWorksheet = xlWorkbook.Sheets[1];
+            Excel.Range xlRange = xlWorksheet.UsedRange;
 
-                // Get the first row (headers)
-                Excel.Range headerRange = xlRange.Rows[1];
-                object[,] headerValues = headerRange.Value;
+            // Get the first row (headers)
+            Excel.Range headerRange = xlRange.Rows[1];
+            object[,] headerValues = headerRange.Value;
 
-                // Convert to list
-                Excel_headers.Clear();
-                Excel_headers.AddRange(Enumerable.Range(1, headerValues.GetLength(1))
-                                           .Select(i => headerValues[1, i]?.ToString().ToLower() ?? string.Empty));
+            // Convert to list
+            Excel_headers.Clear();
+            Excel_headers.AddRange(Enumerable.Range(1, headerValues.GetLength(1))
+                .Select(i => headerValues[1, i]?.ToString().ToLower() ?? string.Empty));
 
-                // Cleanup
-                xlWorkbook.Close(false);
-                xlApp.Quit();
-                System.Runtime.InteropServices.Marshal.ReleaseComObject(xlApp);
-                System.Runtime.InteropServices.Marshal.ReleaseComObject(xlWorkbook);
-                System.Runtime.InteropServices.Marshal.ReleaseComObject(xlWorksheet);
-                System.Runtime.InteropServices.Marshal.ReleaseComObject(xlRange);
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+            // Cleanup
+            xlWorkbook.Close(false);
+            xlApp.Quit();
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(xlApp);
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(xlWorkbook);
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(xlWorksheet);
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(xlRange);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
 
-
-            //store all headers of database table to list (Table_headers1)
-
+            // Store all headers of database table to list (Table_headers1)
             using (var connection = new SQLiteConnection(connectionString))
             {
                 connection.Open();
@@ -210,28 +218,22 @@ namespace Cameradetailstodb
                     {
                         Table_headers1.Clear();
                         Table_headers1.AddRange(reader.Cast<DbDataRecord>()
-                                               .Select(record => record["name"].ToString().ToLower()));
+                            .Select(record => record["name"].ToString().ToLower()));
                     }
                 }
             }
 
-
-            //comapre that excel sheet have same headers as the table have otherwise do not accept excel sheet
+            // Compare that Excel sheet has the same headers as the table has otherwise do not accept Excel sheet
             bool allHeadersContained = Table_headers1.All(h1 => Excel_headers.Contains(h1));
             if (allHeadersContained)
             {
+                MessageBox.Show("Excel headers match database table columns.");
                 return true;
             }
+            MessageBox.Show("Excel headers do not match database table columns.");
             return false;
-           
+
 
         }
-
-
-
-       
-     
     }
-
-
 }
