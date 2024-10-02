@@ -1,352 +1,503 @@
+private void Update_Data(object sender, EventArgs e)
+{
+    // Update logic
+    using (conn)
+    {
+        conn.Open();
+
+        foreach (var cameraId in set)
+        {
+            for (int row = 0; row < dataGridView1.Rows.Count - 1; row++)
+            {
+                var cameraIdCellValue = dataGridView1.Rows[row].Cells["camera_id"].Value;
+
+                // Update based on camera_id
+                if (cameraIdCellValue != null && int.TryParse(cameraIdCellValue.ToString(), out int rowCameraId) && rowCameraId == cameraId)
+                {
+                    string updateQuery = $"UPDATE [{tableName}] SET ";
+
+                    for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                    {
+                        string columnName = dataGridView1.Columns[col].HeaderText;
+
+                        // Ensure to skip camera_id column if needed
+                        if (columnName == "camera_id") continue;
+
+                        updateQuery += $"{columnName}=@param{col}";
+
+                        if (col < dataGridView1.Columns.Count - 1)
+                        {
+                            updateQuery += ",";
+                        }
+                    }
+
+                    updateQuery += " WHERE camera_id=@camera_id";
+
+                    using (SqlCommand updatecmd = new SqlCommand(updateQuery, conn))
+                    {
+                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                        {
+                            if (dataGridView1.Columns[col].HeaderText == "camera_id") continue;
+                            var cellValue = dataGridView1.Rows[row].Cells[col].Value;
+                            updatecmd.Parameters.AddWithValue($"@param{col}", cellValue ?? DBNull.Value);
+                        }
+                        updatecmd.Parameters.AddWithValue("@camera_id", cameraId);
+                        updatecmd.ExecuteNonQuery();
+                    }
+
+                    MessageBox.Show("Update successful");
+                    break;
+                }
+            }
+        }
+    }
+}
+
+
 using System;
-using System.Collections.Generic;
-using System.Data.Common;
-using System.Data.SQLite;
 using System.Data;
-using System.IO;
-using System.Linq;
 using System.Windows.Forms;
+using System.Data.SqlClient;
+using OfficeOpenXml;
+using System.IO;
+using System.Collections.Generic;
+using Excel = Microsoft.Office.Interop.Excel;
 using ExcelDataReader;
 
-namespace Cmaeradetailstodb
+namespace Exceldatatodb
 {
- 
-        public partial class Form1 : Form
+    public partial class Form1 : Form
+    {
+        private string excelFilePath;
+        string tableName = "db_1";
+        private string db = "Data Source=VENOM\\SQLEXPRESS;Initial Catalog=Studentdb;Integrated Security=True;Encrypt=False";
+
+        public static DataTable dt = new DataTable();
+        HashSet<int> set = new HashSet<int>();
+
+        public Form1()
         {
-            string connectionString;
-            string tableName = "T01_tempdata";
-            private string excelFilePath;
-           private string folderFilePath;
-            private DataTable ExcelData = new DataTable();
-            List<string> Table_headers1 = new List<string>();
-           bool WorkingDirectory_Set = false;
-    
-          
-            SQLiteConnection conn;
-
-            public Form1()
-            {
-                InitializeComponent();       
-            }
-
-        
-
-        private void Select_Dir(object sender, EventArgs e)
-        {
-
-           
-                using (FolderBrowserDialog openFolderDialog = new FolderBrowserDialog())
-                {
-                    {
-
-                        var result = openFolderDialog.ShowDialog();
-                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(openFolderDialog.SelectedPath))
-                    {
-                        string folderFilePath = openFolderDialog.SelectedPath;
-                        string databaseName = "MyDatabase.sqlite";
-
-                        //create database file
-                        string databasePath = Path.Combine(folderFilePath, databaseName);
-
-                        //store connection string
-                         connectionString = $"Data Source={databasePath};Version=3;";
-                         conn = new SQLiteConnection(connectionString);
-                        
-                        WorkingDirectory_Set = true;
-
-                        MessageBox.Show("Working Directory has been set");
-
-
-                        if (!File.Exists(databasePath))
-                        {
-                            SQLiteConnection.CreateFile(databasePath);
-                        }
-
-                    }
-                    else
-                    {
-                        MessageBox.Show("Database creation failed");
-                    }
-                }
-
-                
-            }
-
-                
+            InitializeComponent();
         }
 
+        //import the excel file
 
         private void Import_Excel(object sender, EventArgs e)
-            {
-
-
-            using (conn)
-            {
-                if (WorkingDirectory_Set)
-                {
-                    conn.Open();
-                    create_Db_Table();
-                    using (OpenFileDialog openFileDialog = new OpenFileDialog())
-                    {
-                        openFileDialog.Filter = "Excel Files|*.xls;*.xlsx;*.xlsm";
-                        if (openFileDialog.ShowDialog() == DialogResult.OK)
-                        {
-                            excelFilePath = openFileDialog.FileName;
-                            if (Validate_ExcelSheet_with_dbTable())
-                            {
-                                {
-                                    ReadAndStoreExcelData();
-                                    dataGridView1.DataSource = ExcelData;
-
-                                }
-                            }
-                           
-                        }
-                        else
-                        {
-                            MessageBox.Show("Please select an Excel File.");
-                        }
-                    }
-                }
-                else
-                {
-                    MessageBox.Show("Choose the Working Directory First");
-                    return;
-                }
-
-                    conn.Close();
-                }
-
-            }
-
-            private void create_Db_Table()
-            {
-
+        {
+           // ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
           
-                string sql = $"CREATE TABLE IF NOT EXISTS [{tableName}] (" +
-                             "ID INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                             "Camera_ID TEXT, Block_ID INTEGER NOT NULL, Long_D REAL NOT NULL, " +
-                             "Long_M REAL NOT NULL, Long_S REAL NOT NULL, Lat_D REAL NOT NULL, lat_M REAL NOT NULL, " +
-                             "Lat_S REAL NOT NULL, Remarks TEXT, D1 TEXT NOT NULL, D2 TEXT NOT NULL, D3 TEXT NOT NULL, " +
-                             "D4 TEXT NOT NULL, D5 TEXT NOT NULL)";
-                using (SQLiteCommand command = new SQLiteCommand(sql, conn))
+                  using (var openFileDialog1 = new OpenFileDialog { Filter = "Excel Workbook|*.xls;*.xlsx;*.xlsm", ValidateNames = true })
+                    {
+                if (openFileDialog1.ShowDialog() == DialogResult.OK)
                 {
-                    command.ExecuteNonQuery();
-                }
-               
-
-            
-               
-            }
-
-            private void ReadAndStoreExcelData()
-            {
-              DataTable dt = new DataTable();
-
-            using (var stream = File.Open(excelFilePath, FileMode.Open, FileAccess.Read))
-                {
-                    using (var reader = ExcelReaderFactory.CreateReader(stream))
+                    using (var fs = File.Open(openFileDialog1.FileName, FileMode.Open, FileAccess.Read))
                     {
-                    var configuration1 = new ExcelDataSetConfiguration
-                    {
-                        ConfigureDataTable = _ => new ExcelDataTableConfiguration
-                        {
-                            UseHeaderRow = true
-                        }
-                    };
-
-                    var dataTable = new DataTable();
-                  //  var columnIndexMap = new System.Collections.Generic.List<int>();
-
-                    // Read the first row to get headers
-                    if (reader.Read()) // Read the first row
-                    {
-                        for (int i = 0; i < reader.FieldCount; i++)
-                        {
-                            var header = reader.GetString(i);
-                            if (!string.IsNullOrWhiteSpace(header))
-                            {
-                                dataTable.Columns.Add(header); // Add the column with a valid header
-                              //  columnIndexMap.Add(i); // Store the index of the valid column
-                            }
-                        }
-                    }
-
-                    for(int i = 0;i< dataTable.Columns.Count; i++)
-                    {
-                        MessageBox.Show(dataTable.Columns.Count.ToString());
-                    }
-
-                    // Read the remaining rows
-                    //while (reader.Read())
-                    //{
-                    //    var newRow = dataTable.NewRow();
-                    //    foreach (var index in columnIndexMap)
-                    //    {
-                    //        newRow[dataTable.Columns[index].ColumnName] = reader.GetValue(index) ?? DBNull.Value; // Insert DBNull for null values
-                    //    }
-                    //    dataTable.Rows.Add(newRow);
-                    //}
-
-
-                    // MessageBox.Show(dt.Columns.Count.ToString());
-
-
-
-                    var dataSet = reader.AsDataSet(configuration1);
-                       
-                       
-
-                        if (dataSet.Tables.Count > 0)
-                        {
-                            var sheet = dataSet.Tables[0];
-                        MessageBox.Show(sheet.Columns.Count.ToString());
-
-                            // Add columns to the filtered table only if they are in Table_headers1
-                            foreach (DataColumn column in sheet.Columns)
-                            {
-                                var headerString = column.ColumnName;
-                                if (Table_headers1.Contains(headerString.ToLower()))
-                                {
-                                    ExcelData.Columns.Add(headerString);
-                                }
-                            }
-                            // Add rows to the filtered table
-
-
-                            using (var transaction = conn.BeginTransaction())
-                            {
-                                foreach (DataRow row in sheet.Rows)
-                                {
-                                    var newRow = ExcelData.NewRow();
-                                    foreach (DataColumn column in ExcelData.Columns)
-                                    {
-                                        var headerString = column.ColumnName;
-                                        var originalColumnIndex = sheet.Columns.IndexOf(headerString);
-                                        if (originalColumnIndex >= 0)
-                                        {
-                                            newRow[headerString] = row[originalColumnIndex];
-                                        }
-                                    }
-                                    ExcelData.Rows.Add(newRow);
-
-                                //Insert data into database
-                                    string query = $@"INSERT INTO [{tableName}] (Camera_ID, Block_ID, Long_D, Long_M, Long_S, Lat_D, Lat_M, Lat_S, Remarks, D1, D2, D3, D4, D5) 
-                                VALUES (@Camera_ID, @Block_ID, @Long_D, @Long_M, @Long_S, @Lat_D, @Lat_M, @Lat_S, @Remarks, @D1, @D2, @D3, @D4, @D5)";
-
-                                    using (SQLiteCommand comm = new SQLiteCommand(query, conn))
-                                    {
-                                        comm.Parameters.AddWithValue("@Camera_ID", newRow["Camera_ID"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Block_ID", newRow["Block_ID"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Long_D", newRow["Long_D"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Long_M", newRow["Long_M"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Long_S", newRow["Long_S"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Lat_D", newRow["Lat_D"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Lat_M", newRow["Lat_M"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Lat_S", newRow["Lat_S"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@Remarks", newRow["Remarks"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@D1", newRow["D1"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@D2", newRow["D2"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@D3", newRow["D3"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@D4", newRow["D4"] ?? DBNull.Value);
-                                        comm.Parameters.AddWithValue("@D5", newRow["D5"] ?? DBNull.Value);
-                                        comm.ExecuteNonQuery();
-                                    }
-                                }
-                                transaction.Commit();
-                            }
-                        }
-                        reader.Close();
-                    }
-                    stream.Close();
-                }
-            }
-            private bool Validate_ExcelSheet_with_dbTable()
-            {
-                List<string> Excel_headers = new List<string>();
-                //add excel headers into the  Excel_headers list
-
-                using (var stream = File.Open(excelFilePath, FileMode.Open, FileAccess.Read))
-                {
-                    using (var reader = ExcelReaderFactory.CreateReader(stream))
-                    {
-
-
-                    var configuration1 = new ExcelDataSetConfiguration
+                        var reader = ExcelReaderFactory.CreateReader(fs);
+                        var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
                         {
                             ConfigureDataTable = _ => new ExcelDataTableConfiguration
                             {
-                                UseHeaderRow = true
+                                UseHeaderRow = true // Use first row is ColumnName here :D
                             }
-                        };
-
-                    DataTable dt = new DataTable();
-                    if (reader.Read())
-                    {
-                        for (int i = 0; i < reader.FieldCount; i++)
+                        });
+                        if (dataSet.Tables.Count > 0)
                         {
-                            var header = reader.GetString(i);
-                            if (!string.IsNullOrWhiteSpace(header))
-                            {
-
-                                Excel_headers.Add(header.ToLower());
-                            }
+                            var dtData = dataSet.Tables[0];
+                            // Do Something
                         }
                     }
-
-
-                        //var dataSet = reader.AsDataSet(configuration1);
-
-                        //if (dataSet.Tables.Count > 0)
-                        //{
-                        //    var sheet = dataSet.Tables[0]; //Take the first sheet
-
-
-
-                        //    // Add columns to the filtered table only if they are in Table_headers1
-                        //    foreach (DataColumn column in sheet.Columns)
-                        //    {
-                        //        var headerString = column.ColumnName.ToString().ToLower();
-                        //        Excel_headers.Add(headerString);
-                        //    }
-                        //}
-                    }
                 }
+              }
+           
+              
+            
+
+        }
+
+      
+    
 
 
+        private void ReadAndInsertExcelData()
+        {
+            Excel.Application excelApp = new Excel.Application();
+            Excel.Workbook workbook = excelApp.Workbooks.Open(excelFilePath);
+            Excel.Worksheet worksheet = workbook.Sheets[1];
+            Excel.Range range = worksheet.UsedRange;
+            string tableName = worksheet.Name;
 
-
-
-
-
-                // Store all headers of database table to list (Table_headers1)
-
-                string sql = $"PRAGMA table_info('{tableName}');";
-                using (SQLiteCommand command = new SQLiteCommand(sql, conn))
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(db))
                 {
-                    using (SQLiteDataReader reader = command.ExecuteReader())
+                    conn.Open();
+
+                    // Create table based on Excel columns
+                    string createTableQuery = $"CREATE TABLE IF NOT EXISTS [{tableName}] (";
+                    for (int col = 1; col <= range.Columns.Count; col++)
                     {
-                        Table_headers1.Clear();
-                        Table_headers1.AddRange(reader.Cast<DbDataRecord>()
-                            .Select(record => record["name"].ToString().ToLower()));
+                        string columnName = (range.Cells[1, col] as Excel.Range).Value2.ToString().Replace(" ", "_");
+
+                        if (col == 1)
+                        {
+                            // Assuming the first column is the primary key and it is an integer
+                            createTableQuery += $"{columnName} INTEGER PRIMARY KEY";
+                        }
+                        else
+                        {
+                            createTableQuery += $"{columnName} TEXT";
+                        }
+
+                        if (col < range.Columns.Count)
+                        {
+                            createTableQuery += ", ";
+                        }
+                    }
+                    createTableQuery += ")";
+
+                    using (SqlCommand createTableCmd = new SqlCommand(createTableQuery, conn))
+                    {
+                        createTableCmd.ExecuteNonQuery();
+                    }
+
+                    using (SqlTransaction transaction = conn.BeginTransaction())
+                    {
+                        for (int row = 2; row <= range.Rows.Count; row++)
+                        {
+                            string insertQuery = $"INSERT INTO [{tableName}] VALUES (";
+                            for (int col = 1; col <= range.Columns.Count; col++)
+                            {
+                                insertQuery += $"@param{col}";
+                                if (col < range.Columns.Count)
+                                {
+                                    insertQuery += ", ";
+                                }
+                            }
+                            insertQuery += ")";
+
+                            using (SqlCommand insertCmd = new SqlCommand(insertQuery, conn))
+                            {
+                                for (int col = 1; col <= range.Columns.Count; col++)
+                                {
+                                    var cellValue = (range.Cells[row, col] as Excel.Range).Value2;
+                                    if (col == 1) // Assuming first column is the primary key and integer
+                                    {
+                                        insertCmd.Parameters.AddWithValue($"@param{col}", Convert.ToInt32(cellValue));
+                                    }
+                                    else
+                                    {
+                                        insertCmd.Parameters.AddWithValue($"@param{col}", cellValue.ToString());
+                                    }
+                                }
+                                insertCmd.ExecuteNonQuery();
+                            }
+                        }
+                        transaction.Commit();
+                    }
+
+                    MessageBox.Show("Data imported successfully!");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                // Clean up
+                if (workbook != null)
+                {
+                    workbook.Close(false);
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(workbook);
+                }
+                if (excelApp != null)
+                {
+                    excelApp.Quit();
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(excelApp);
+                }
+            }
+        }
+
+        
+    
+
+
+
+
+    private void bulkcopy()
+        {
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(db))
+                {
+                    conn.Open();
+                    using (SqlBulkCopy bulkCopy = new SqlBulkCopy(conn))
+                    {
+                        bulkCopy.DestinationTableName = tableName;
+                        bulkCopy.WriteToServer(dt);
+                    }
+                    MessageBox.Show("Successfully Inserted");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Bulk copy error: {ex.Message}");
+            }
+        }
+
+
+        //edit Mode
+        private void Edit_Row(object sender, EventArgs e)
+        {
+
+            getid();
+        }
+
+        private void getid()
+        {
+            if (dataGridView1.SelectedCells.Count > 0)
+            {
+                string id = dataGridView1.Rows[dataGridView1.SelectedCells[0].RowIndex].Cells[0].Value.ToString();
+                if (int.TryParse(id, out int number))
+                {
+                    set.Add(number);
+
+                }
+
+            }
+        }
+
+
+
+
+        //Update the current data
+
+        private void Update_Data(object sender, EventArgs e)
+        {
+            //updation
+            using (SqlConnection conn = new SqlConnection(db))
+            {
+                conn.Open();
+
+
+                foreach (var id in set)
+                {
+
+                    for (int row = 0; row < dataGridView1.Rows.Count - 1; row++)
+                    {
+                        var id1 = dataGridView1.Rows[row].Cells[0].Value;
+                        //Update
+                        if (id1 != null && int.TryParse(id1.ToString(), out int rowId) && rowId == id)
+                        {
+                            string updateQuery = $"UPDATE [{tableName}] SET ";
+                            for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                            {
+
+                                string columnName = dataGridView1.Columns[col].HeaderText;
+                                updateQuery += $"{columnName}=@param{col}";
+                                if (col < dataGridView1.Columns.Count - 1)
+                                {
+                                    updateQuery += ",";
+                                }
+                            }
+
+                            updateQuery += $" WHERE ID=@id";
+
+                            using (SqlCommand updatecmd = new SqlCommand(updateQuery, conn))
+                            {
+                                for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                                {
+                                    if (dataGridView1.Columns[col].HeaderText == "ID") continue;
+                                    var cellValue = dataGridView1.Rows[row].Cells[col].Value;
+                                    updatecmd.Parameters.AddWithValue($"@param{col}", cellValue ?? DBNull.Value);
+                                }
+                                updatecmd.Parameters.AddWithValue("@id", id);
+                                updatecmd.ExecuteNonQuery();
+                            }
+
+                            MessageBox.Show("update successfully");
+                            break;
+                        }
+
                     }
 
                 }
 
-                // Compare that Excel sheet has the same headers as the table has otherwise do not accept Excel sheet
-                bool allHeadersContained = Table_headers1.All(h1 => Excel_headers.Contains(h1));
-                if (allHeadersContained)
+            }
+
+            List<string> existingIds = new List<string>();
+            using (SqlConnection conn = new SqlConnection(db))
+            {
+                conn.Open();
+
+
+                string selectQuery = $"SELECT ID FROM {tableName}";
+                using (SqlCommand selectCmd = new SqlCommand(selectQuery, conn))
                 {
-                    MessageBox.Show("Excel headers match database table columns.");
-                    return true;
+                    using (SqlDataReader reader = selectCmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            existingIds.Add(reader["ID"].ToString());
+                        }
+                    }
                 }
-                else
+
+
+                // Step 3: Insert new records
+                foreach (DataGridViewRow row in dataGridView1.Rows)
                 {
-                    MessageBox.Show("Excel headers do not match database table columns.");
-                    return false;
+                    if (row.IsNewRow) continue;
+
+                    string idValue = row.Cells["ID"].Value.ToString();
+
+                    if (!existingIds.Contains(idValue))
+                    {
+                        string insertQuery = $"INSERT INTO {tableName} (";
+
+                        // Columns
+                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                        {
+                            string columnName = dataGridView1.Columns[col].HeaderText;
+                            insertQuery += $"{columnName}";
+                            if (col < dataGridView1.Columns.Count - 1)
+                            {
+                                insertQuery += ", ";
+                            }
+                        }
+
+                        insertQuery += ") VALUES (";
+
+                        // Parameters
+                        for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                        {
+                            insertQuery += $"@param{col}";
+                            if (col < dataGridView1.Columns.Count - 1)
+                            {
+                                insertQuery += ", ";
+                            }
+                        }
+
+                        insertQuery += ")";
+
+                        using (SqlCommand insertCmd = new SqlCommand(insertQuery, conn))
+                        {
+                            for (int col = 0; col < dataGridView1.Columns.Count; col++)
+                            {
+                                var cellValue = row.Cells[col].Value;
+                                insertCmd.Parameters.AddWithValue($"@param{col}", cellValue ?? (object)DBNull.Value);
+                            }
+
+                            insertCmd.ExecuteNonQuery();
+                        }
+                        MessageBox.Show("Data updated successfully");
+                        break;
+                    }
                 }
             }
 
-       
+
+        }
+
+
+
+
+
+        //finalize the  into data
+
+        private void Finalize_btn(object sender, EventArgs e)
+        {
+            using (SqlConnection conn = new SqlConnection(db))
+            {
+                try
+                {
+                    conn.Open();
+                    string createTableQuery = $"SELECT * INTO finalize FROM [{tableName}] WHERE 1 = 0";
+                    using (SqlCommand createTableCmd = new SqlCommand(createTableQuery, conn))
+                    {
+                        createTableCmd.ExecuteNonQuery();
+                    }
+
+
+                    string insertDataQuery = $"INSERT INTO finalize SELECT * FROM [{tableName}]";
+                    using (SqlCommand insertCmd = new SqlCommand(insertDataQuery, conn))
+                    {
+                        insertCmd.ExecuteNonQuery();
+                    }
+
+                    string TruncateQuery = $"Truncate table [{tableName}] ";
+                    using (SqlCommand TruncateCmd = new SqlCommand(TruncateQuery, conn))
+                    {
+                        TruncateCmd.ExecuteNonQuery();
+                    }
+
+                    MessageBox.Show("Finalized Successfully");
+                    showupdateddata(tableName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error: {ex.Message}");
+                }
+
+            }
+        }
+
+
+
+
+
+
+
+
+        //Show Updated database
+        private void Show_Updated(object sender, EventArgs e)
+        {
+            showupdateddata(tableName);
+        }
+
+        private void Showfinalized(object sender, EventArgs e)
+        {
+            string tablename = "finalize";
+            showupdateddata(tablename);
+        }
+
+
+
+
+        public void showupdateddata(string tablename)
+        {
+            string connectionString = db;
+
+            try
+            {
+                using (SqlConnection conn = new SqlConnection(connectionString))
+                {
+                    // Query to select all data from the first table
+                    string selectQuery = $"SELECT * FROM [{tablename}]";
+                    using (SqlDataAdapter da = new SqlDataAdapter(selectQuery, conn))
+                    {
+                        SqlCommandBuilder commandBuilder = new SqlCommandBuilder(da);
+                        DataTable dataTable = new DataTable();
+                        da.Fill(dataTable);
+                        dataGridView1.DataSource = dataTable;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred: {ex.Message}");
+            }
+        }
+
+
+
     }
+
 }
+
+
+
+
+
+
+
