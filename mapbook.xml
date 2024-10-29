@@ -1,0 +1,61 @@
+<mapbook version="3.0">
+
+
+
+  <map-source name="Goggle_map" type="xyz">
+     <url>https://mt0.google.com/vt/lyrs=h&amp;x={x}&amp;y={y}&amp;z={z} </url>           
+        <layer name="gm" status="on">
+        <template name="identify" auto="true" />
+			<!--<legend type="nolegend"/>--><!--  for no legend-->
+         </layer>
+    </map-source> 
+
+
+
+    <!-- service -->
+	
+	
+       <!-- uttarkhand landuse -->
+       <map-source name="UK" type="wms">
+     <url>https://bhuvan-vec2.nrsc.gov.in/bhuvan/wms/</url>           
+        <layer name="UK_LULC50K_0506" status="on">
+        <template name="identify" auto="true" />
+			<!--<legend type="nolegend"/>--><!--  for no legend-->
+         </layer>
+    </map-source> 
+	
+		<map-source name="census_cities-wfs" type="mapserver-wfs" status="on">
+    <url>https://www.larvakite.in/geoserver/ntca/wfs?</url>
+    <param name="typename" value="ntca:Ind_Chi_25"/>
+    <config name="geometry-name" value="wkb_geometry"/>
+    
+    <layer name="Ind_Chi_25" status="off">
+        <style>
+            <![CDATA[
+            {
+                "line-color": "#d95f0e",
+                "line-width": 4,
+                "line-opacity": 0.80,
+                "fill-color": "#fec44f",
+                "fill-opacity": 0.60,
+                "text-size": 16.0,
+                "text-field": "{name}",
+                "text-color": "#A16214"
+            }
+            ]]>
+        </style>
+        
+        <template name="identify" auto="true"></template>
+        <template name="select" auto="true"></template>
+    </layer>
+</map-source>
+
+
+
+ <catalog>
+          <layer  src="census_cities-wfs/Ind_Chi_25" title="WfS"/>
+          <layer  src="UK/UK_LULC50K_0506" title="uttarakhand landuse"/> 
+		  <layer   src="Goggle_map/gm"  title="Google Map" />
+</catalog>		  
+
+</mapbook>
