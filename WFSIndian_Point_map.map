@@ -1,0 +1,47 @@
+MAP
+  INCLUDE '../../geomoose_globals.map'
+  WEB
+    METADATA
+      'ows_title' 'County'
+      INCLUDE '../../common_metadata.map'
+      'wfs_onlineresource' 'https://www.larvakite.in/geoserver/ntca/ows?service=WFS&request=GetCapabilities'
+      'wfs_srs' 'EPSG:7755'
+    END
+  END
+  Extent '7.850307979620613 72.18609723830109 30.457481858661996 91.44376042599428'
+  LAYER
+    NAME 'Ind_Chi_25'
+    STATUS ON
+    METADATA
+      "TYPE" "Ind_Chi_25"
+	  "wfs_version" "1.0.0"
+	  "wfs_connectiontimeout" "60"
+	  "wfs_maxfeatures" "10"
+    END
+	CONNECTIONTYPE WFS
+    CONNECTION 'https://www.larvakite.in/geoserver/ntca/ows?service=WFS&request=GetCapabilities'
+	#CONNECTIONTYPE POSTGIS
+	#CONNECTION "host=localhost dbname=gis2 user=postgres password=postgres"
+	
+    DATA 'Ind_Chi_25'
+    TYPE POLYGON
+    PROJECTION
+      'init=epsg:7755'
+    END
+   CLASS
+	NAME "INDIA-CHINA"
+	STYLE
+	  COLOR 255 128 128
+	  OUTLINECOLOR 96 96 96
+	END
+	LABEL
+		TEXT abc
+		SIZE 20
+		COLOR 0 0 0
+		OUTLINECOLOR 254 254 200
+	END
+  END
+    TOLERANCE 10
+    TEMPLATE 'dummy'
+  END
+END
